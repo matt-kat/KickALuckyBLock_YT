@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en-us">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <title>CarCrashTestX_YG</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+
+            html, body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000 url('Background.jpg') center center / cover no-repeat;
+            }
+
+            #game-wrapper {
+                position: absolute;
+                overflow: hidden;
+            }
+
+            /* Remove focus outline on canvas */
+            #unity-canvas {
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%;
+                height: 100%;
+                display: block;
+                background: #000;
+                outline: none;
+            }
+
+            /* ── Loading screen ── */
+            #loading-screen {
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 32px;
+                z-index: 10;
+                overflow: hidden;
+                transition: opacity 0.6s ease;
+            }
+
+            #loading-screen.hidden {
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            /* Loading image background */
+            #loading-bg {
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.32)),
+                    url('Background.jpg') center center / cover no-repeat;
+            }
+
+            /* Soft glow blob behind icon */
+            #loading-glow {
+                position: absolute;
+                width: 340px;
+                height: 340px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(120,80,255,0.35) 0%, transparent 70%);
+                animation: glowPulse 3s ease-in-out infinite;
+                pointer-events: none;
+            }
+
+            @keyframes glowPulse {
+                0%, 100% { transform: scale(1);   opacity: 0.7; }
+                50%       { transform: scale(1.2); opacity: 1;   }
+            }
+
+            /* Content layer */
+            #loading-content {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 32px;
+            }
+
+            /* Icon */
+            #game-icon {
+                width: 160px;
+                height: 160px;
+                border-radius: 32px;
+                object-fit: cover;
+                box-shadow: 0 0 0 3px rgba(255,255,255,0.12), 0 16px 48px rgba(0,0,0,0.6);
+                animation: iconFloat 3s ease-in-out infinite;
+            }
+
+            @keyframes iconFloat {
+                0%, 100% { transform: translateY(0px);  }
+                50%       { transform: translateY(-8px); }
+            }
+
+            /* Progress bar */
+            #progress-bar-wrapper {
+                width: 180px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+
+            #progress-bar-track {
+                width: 100%;
+                height: 6px;
+                background: rgba(255,255,255,0.12);
+                border-radius: 3px;
+                overflow: hidden;
+                position: relative;
+            }
+
+            #progress-bar-fill {
+                height: 100%;
+                width: 0%;
+                border-radius: 3px;
+                background: linear-gradient(90deg, #a78bfa, #60a5fa);
+                transition: width 0.25s ease;
+                position: relative;
+            }
+
+            /* Shimmer on the fill */
+            #progress-bar-fill::after {
+                content: '';
+                position: absolute;
+                top: 0; left: -60px;
+                width: 60px;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+                animation: shimmer 1.4s ease infinite;
+            }
+
+            @keyframes shimmer {
+                0%   { left: -60px; }
+                100% { left: 100%;  }
+            }
+
+            /* Dots */
+            #loading-dots {
+                display: flex;
+                gap: 6px;
+            }
+
+            #loading-dots span {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.4);
+                animation: dotBounce 1.2s ease-in-out infinite;
+            }
+
+            #loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+            #loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+            @keyframes dotBounce {
+                0%, 80%, 100% { transform: scale(1);    opacity: 0.4; }
+                40%            { transform: scale(1.4);  opacity: 1;   }
+            }
+        </style>
+
+        <!-- YouTube Playables SDK must be loaded before any game code -->
+        <script src="https://www.youtube.com/game_api/v1"></script>
+        <script>
+            window.YT_FIRST_FRAME_READY_SENT = false;
+            window.YT_GAME_READY_SENT = false;
+            window.YT_GAME_READY_REQUESTED = false;
+            window.YT_UNITY_INSTANCE_READY = false;
+            window.YT_LOADING_SCREEN_HIDDEN = false;
+            window.YT_PLAYABLES_CLOUD_SAVE = '';
+            window.YT_PLAYABLES_CLOUD_SAVE_LOADED = false;
+            window.YT_PLAYABLES_CLOUD_SAVE_FAILED = false;
+            window.YT_PLAYABLES_SAVE_READY = Promise.resolve();
+
+            window.YT_NotifyFirstFrameReady = function() {
+                if (window.YT_FIRST_FRAME_READY_SENT) return;
+                if (typeof ytgame !== 'undefined' && ytgame.game) {
+                    ytgame.game.firstFrameReady();
+                    window.YT_FIRST_FRAME_READY_SENT = true;
+                }
+            };
+
+            window.YT_FlushGameReady = function() {
+                if (window.YT_GAME_READY_SENT || !window.YT_GAME_READY_REQUESTED) return;
+                if (!window.YT_UNITY_INSTANCE_READY || !window.YT_LOADING_SCREEN_HIDDEN) return;
+                if (typeof ytgame !== 'undefined' && ytgame.game) {
+                    ytgame.game.gameReady();
+                    window.YT_GAME_READY_SENT = true;
+                }
+            };
+
+            window.YT_UnityGameReady = function() {
+                window.YT_GAME_READY_REQUESTED = true;
+                window.YT_FlushGameReady();
+            };
+
+            if (typeof ytgame !== 'undefined' && ytgame.IN_PLAYABLES_ENV && ytgame.game) {
+                window.YT_PLAYABLES_SAVE_READY = ytgame.game.loadData()
+                    .then(function(data) {
+                        window.YT_PLAYABLES_CLOUD_SAVE = data || '';
+                        window.YT_PLAYABLES_CLOUD_SAVE_LOADED = true;
+                    })
+                    .catch(function(error) {
+                        window.YT_PLAYABLES_CLOUD_SAVE_FAILED = true;
+                        console.warn('[YouTube Playables] loadData failed.', error);
+                    });
+            }
+        </script>
+        <link rel="preload" href="Build/KickALuckyBLock_YT.wasm.zip" as="fetch" type="application/zip" crossorigin>
+        <link rel="preload" href="Build/KickALuckyBLock_YT.data.zip" as="fetch" type="application/zip" crossorigin>
+    </head>
+    <body>
+        <div id="game-wrapper">
+            <canvas id="unity-canvas" tabindex="-1"></canvas>
+
+            <div id="loading-screen">
+                <div id="loading-bg"></div>
+                <div id="loading-glow"></div>
+
+                <div id="loading-content">
+                    <img id="game-icon" src="Icon.jpg" alt="">
+
+                    <div id="progress-bar-wrapper">
+                        <div id="progress-bar-track">
+                            <div id="progress-bar-fill"></div>
+                        </div>
+                        <div id="loading-dots">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            var unityInstance = null;
+            var wrapper         = document.getElementById('game-wrapper');
+            var canvas          = document.getElementById('unity-canvas');
+            var loadingScreen   = document.getElementById('loading-screen');
+            var progressBarFill = document.getElementById('progress-bar-fill');
+
+            function findZipEndOfCentralDirectory(bytes) {
+                var minimumOffset = Math.max(0, bytes.length - 65557);
+
+                for (var offset = bytes.length - 22; offset >= minimumOffset; offset--) {
+                    if (
+                        bytes[offset] === 0x50 &&
+                        bytes[offset + 1] === 0x4b &&
+                        bytes[offset + 2] === 0x05 &&
+                        bytes[offset + 3] === 0x06
+                    ) {
+                        return offset;
+                    }
+                }
+
+                throw new Error('ZIP end-of-central-directory record was not found');
+            }
+
+            async function loadSingleEntryZip(url, mimeType) {
+                var response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('Failed to load ' + url + ': HTTP ' + response.status);
+                }
+
+                var archive = await response.arrayBuffer();
+                var bytes = new Uint8Array(archive);
+                var view = new DataView(archive);
+                var endOfCentralDirectory = findZipEndOfCentralDirectory(bytes);
+                var entryCount = view.getUint16(endOfCentralDirectory + 10, true);
+
+                if (entryCount !== 1) {
+                    throw new Error(url + ' must contain exactly one file; found ' + entryCount);
+                }
+
+                var centralDirectoryOffset = view.getUint32(endOfCentralDirectory + 16, true);
+                if (view.getUint32(centralDirectoryOffset, true) !== 0x02014b50) {
+                    throw new Error('Invalid ZIP central-directory header in ' + url);
+                }
+
+                var compressionMethod = view.getUint16(centralDirectoryOffset + 10, true);
+                var compressedSize = view.getUint32(centralDirectoryOffset + 20, true);
+                var uncompressedSize = view.getUint32(centralDirectoryOffset + 24, true);
+                var localHeaderOffset = view.getUint32(centralDirectoryOffset + 42, true);
+
+                if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) {
+                    throw new Error('Invalid ZIP local-file header in ' + url);
+                }
+
+                var fileNameLength = view.getUint16(localHeaderOffset + 26, true);
+                var extraFieldLength = view.getUint16(localHeaderOffset + 28, true);
+                var dataOffset = localHeaderOffset + 30 + fileNameLength + extraFieldLength;
+                var compressedData = archive.slice(dataOffset, dataOffset + compressedSize);
+                var uncompressedData;
+
+                if (compressionMethod === 0) {
+                    uncompressedData = compressedData;
+                } else if (compressionMethod === 8) {
+                    if (typeof DecompressionStream === 'undefined') {
+                        throw new Error('This browser does not support the Decompression Streams API');
+                    }
+
+                    var decompressedResponse = new Response(
+                        new Blob([compressedData]).stream().pipeThrough(
+                            new DecompressionStream('deflate-raw')));
+                    uncompressedData = await decompressedResponse.arrayBuffer();
+                } else {
+                    throw new Error(
+                        'Unsupported ZIP compression method ' + compressionMethod + ' in ' + url);
+                }
+
+                if (uncompressedData.byteLength !== uncompressedSize) {
+                    throw new Error(
+                        'Invalid decompressed size for ' + url + ': expected ' +
+                        uncompressedSize + ', got ' + uncompressedData.byteLength);
+                }
+
+                return URL.createObjectURL(new Blob([uncompressedData], { type: mimeType }));
+            }
+
+            // The loading UI is in the DOM now. Call synchronously because requestAnimationFrame
+            // may be throttled while YouTube prepares the game in a hidden WebView.
+            window.YT_NotifyFirstFrameReady();
+
+            function getViewportSize() {
+                var viewport = window.visualViewport;
+                return {
+                    width: Math.round((viewport && viewport.width) || window.innerWidth || document.documentElement.clientWidth || 0),
+                    height: Math.round((viewport && viewport.height) || window.innerHeight || document.documentElement.clientHeight || 0)
+                };
+            }
+
+            function resizeCanvas() {
+                var viewportSize = getViewportSize();
+                var screenW = viewportSize.width;
+                var screenH = viewportSize.height;
+                if (screenH === 0) return;
+
+                wrapper.style.width  = screenW + 'px';
+                wrapper.style.height = screenH + 'px';
+                wrapper.style.left   = '0';
+                wrapper.style.top    = '0';
+            }
+
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', resizeCanvas);
+                window.visualViewport.addEventListener('scroll', resizeCanvas);
+            }
+            if (typeof ResizeObserver === 'function') {
+                new ResizeObserver(resizeCanvas).observe(document.documentElement);
+            }
+
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                var meta = document.createElement('meta');
+                meta.name = 'viewport';
+                meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+                document.head.appendChild(meta);
+            }
+
+            // Focus canvas without showing outline
+            window.addEventListener('pointerdown', function() { canvas.focus({ preventScroll: true }); });
+
+            window.addEventListener('wheel',       function(e) { e.preventDefault(); }, { passive: false });
+            window.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+            var loaderScript = document.createElement('script');
+            loaderScript.src = 'Build/KickALuckyBLock_YT.loader.js';
+            loaderScript.nonce = document.querySelector('script[nonce]')?.nonce ?? '';
+            loaderScript.onload = async function() {
+                var dataBlobUrl = null;
+                var codeBlobUrl = null;
+
+                try {
+                    var initialResources = await Promise.all([
+                        window.YT_PLAYABLES_SAVE_READY,
+                        loadSingleEntryZip(
+                            'Build/KickALuckyBLock_YT.data.zip',
+                            'application/octet-stream'),
+                        loadSingleEntryZip(
+                            'Build/KickALuckyBLock_YT.wasm.zip',
+                            'application/wasm')
+                    ]);
+
+                    dataBlobUrl = initialResources[1];
+                    codeBlobUrl = initialResources[2];
+
+                    var instance = await createUnityInstance(canvas, {
+                        dataUrl:            dataBlobUrl,
+                        frameworkUrl:       'Build/KickALuckyBLock_YT.framework.js',
+                        codeUrl:            codeBlobUrl,
+                        streamingAssetsUrl: 'StreamingAssets',
+                        companyName:        'DefaultCompany',
+                        productName:        'CarCrashTestX_YG',
+                        productVersion:     '0.1.0',
+                        matchWebGLToCanvasSize: true,
+                    }, function(progress) {
+                        progressBarFill.style.width = (progress * 100) + '%';
+                    });
+
+                    unityInstance = instance;
+                    window.unityInstance = instance;
+                    window.YT_UNITY_INSTANCE_READY = true;
+                    resizeCanvas();
+                    window.dispatchEvent(new Event('resize'));
+                    setTimeout(function() { resizeCanvas(); window.dispatchEvent(new Event('resize')); }, 100);
+                    setTimeout(function() { resizeCanvas(); window.dispatchEvent(new Event('resize')); }, 500);
+                    loadingScreen.classList.add('hidden');
+                    setTimeout(function() {
+                        loadingScreen.style.display = 'none';
+                        window.YT_LOADING_SCREEN_HIDDEN = true;
+                        window.YT_FlushGameReady();
+                    }, 650);
+                    canvas.focus({ preventScroll: true });
+                } catch (err) {
+                    if (typeof ytgame !== 'undefined' && ytgame.health) {
+                        ytgame.health.logError();
+                    }
+                    console.error(err);
+                } finally {
+                    if (dataBlobUrl !== null) URL.revokeObjectURL(dataBlobUrl);
+                    if (codeBlobUrl !== null) URL.revokeObjectURL(codeBlobUrl);
+                }
+            };
+            document.body.appendChild(loaderScript);
+        </script>
+    </body>
+</html>
